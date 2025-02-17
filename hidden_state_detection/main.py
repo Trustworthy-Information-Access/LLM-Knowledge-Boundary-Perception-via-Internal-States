@@ -30,7 +30,7 @@ def run(args):
     if 'nq' in args.data or 'hq' in args.data:
         train_data, train_labels, test_data, test_labels, ood_data, ood_labels = split_data_for_generation(args.data, args.label, need_layers)
     else:
-        train_data, train_labels, test_data, test_labels, ood_data, ood_labels = split_data_for_mmlu(args.data, args.label, need_layers)
+        train_data, train_labels, test_data, test_labels, ood_data, ood_labels = split_data_for_mmlu(args.data, args.label, need_layers, args.mmlu_train_idx)
     train_dataset = HiddenData(train_data, train_labels)
     test_dataset = HiddenData(test_data, test_labels)
     ood_dataset = HiddenData(ood_data, ood_labels)
@@ -65,6 +65,7 @@ def get_args():
     parser.add_argument('--lr_rate', type=float, default=5e-5)
     parser.add_argument('--epochs', type=int, default=30)
     parser.add_argument('--which_gpu', type=str, default='1')
+    parser.add_argument('--mmlu_train_idx', type=str, default='./mmlu_train.jsonl')
     args = parser.parse_args()
 
     return args

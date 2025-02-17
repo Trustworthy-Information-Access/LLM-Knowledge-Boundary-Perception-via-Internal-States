@@ -44,8 +44,8 @@ class Generater:
             batch = self.tokenizer(batch, return_tensors='pt', padding=True).to(device)
             input_ids, attn_mask = batch['input_ids'], batch['attention_mask']
             outs = self.model.generate(input_ids, attention_mask=attn_mask, max_new_tokens=self.args.max_new_tokens, 
-                                       output_attentions=self.args.attn_weights, return_dict_in_generate=True, output_scores=True, output_hidden_states=self.args.hidden_states, 
-                                       pad_token_id=0, top_p=1.0, temperature=1, do_sample=False)
+                                       output_attentions=self.args.attn_weights, return_dict_in_generate=True, output_scores=True, output_hidden_states=self.args.hidden_states, top_p=1.0, temperature=self.args.temperature, do_sample=False)
+            print(self.args.sampling)
             if self.args.task == 'mmlu' or self.args.task == 'tq':
                 self.process_res_multi_choice(outs, input_ids) # 得到一个batch的结果
             else:
@@ -214,6 +214,8 @@ class Generater:
                     res_sample['qa_prompt'] = self.data[begin]
                     res_sample['Res'] = self.outputs[begin]['Res']
                     res_sample['Log_p'] = self.outputs[begin]['Log_p']
+                    if 'popularity' in self.outputs[begin]:
+                        res_sample['popularity'] = self.outputs[begin]['popularity']
                     if self.args.task == 'mmlu' or self.args.task == 'tq':
                         res_sample['question'] = self.data.format_example(all_data, idx, include_answer=False)
                         res_sample['has_answer'] = res_sample['Res'] == all_data[idx][-1]

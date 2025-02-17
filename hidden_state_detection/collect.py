@@ -160,8 +160,9 @@ def get_res_for_different_seed(base_dir):
     for mode in ['first', 'last', 'avg']:
         mode_score = [0.0, 0.0]
         for seed in ['0', '42', '100']:
-            if 'sample' in base_dir:
-                file_path = base_dir + 'sample_' + mode + '_seed' + seed + '.jsonl'
+            file_path = base_dir + 'sample_' + mode + '_seed' + seed + '.jsonl'
+            if os.path.exists(file_path):
+                pass
             else:
                 file_path = base_dir + mode + '_seed' + seed + '.jsonl'
             data = read_json(file_path)
@@ -170,7 +171,47 @@ def get_res_for_different_seed(base_dir):
         mode_score = [round(item / 3, 4) for item in mode_score]
         print(f'{mode}-avg score: {mode_score}')
         total_score.append(mode_score)
+    return [item[0] for item in total_score]
 
+def get_conf_for_different_seed(conf_dir, label_path):
+    labels = torch.load(label_path)
+    conf_res = []
+    overconf = []
+    conserv = []
+    for mode in ['first', 'last', 'avg']:
+        mode_conf = []
+        mode_overconf = []
+        mode_conserv = []
+        for seed in ['0', '42', '100']:
+            file_path = conf_dir + 'pred_sample_' + mode + '_seed' + seed + '.jsonl'
+            if os.path.exists(file_path):
+                pass
+            else:
+                file_path = conf_dir + 'pred_' + mode + '_seed' + seed + '.jsonl'
+            conf_data = read_json(file_path)[0]['test_pred']
+            # print(conf_data)
+            mode_conf.append(sum(conf_data) / len(conf_data))
+            mode_overconf.append([conf_data[idx] > labels[idx] for idx in range(len(labels))])
+            mode_overconf[-1] = sum(mode_overconf[-1]) / len(mode_overconf[-1]) # 每个seed的overcon
+            mode_conserv.append([conf_data[idx] < labels[idx] for idx in range(len(labels))])
+            mode_conserv[-1] = sum(mode_conserv[-1])/len(mode_conserv[-1]) # 每个seed的conserv
+            
+        conf_res.append(sum(mode_conf)/len(mode_conf)) # 3个seed平均conf
+        overconf.append(sum(mode_overconf).item()/len(mode_overconf)) # 3个seed平均overconf
+        conserv.append(sum(mode_conserv).item()/len(mode_conserv)) # 3个seed平均conserv
+        conf_res = [round(item, 4) for item in conf_res]
+        
+        overconf = [round(item,4) for item in overconf]
+        conserv = [round(item,4) for item in conserv]
+        conf_right = [round(conf_res[idx] - overconf[idx],4) for idx in range(len(conf_res))]
+        not_conf_rong = [round(1 - (conf_res[idx] + conserv[idx]),4) for idx in range(len(conf_res))]
+    print(f'confidence: {conf_res}')
+    print(f'conf_right: {conf_right}')
+    print(f'overconf: {overconf}')
+    print(f'not_conf_wrong: {not_conf_rong}')
+    print(f'conserv: {conserv}')
+    return conf_res, conf_right, overconf, not_conf_rong, conserv
+                
 def compute_acc(path):
     data = read_json(path)
     res = []
@@ -212,11 +253,60 @@ def compute_acc_for_mc_task(ref_path, gene_path):
     print(f'count: {len(acc)}')
     print(f'acc: {sum(acc)/len(acc)}')
 
+def write_to_csv():
+    total_score = []
+
+    for model in ['llama2-chat-7b', 'llama3-8b-instruct', 'qwen2', 'llama2-chat-13b']:
+        for chat_mode in ['zero-shot-3-random-1-gt-choose-gt', 'zero-shot-3-random-1-none-choose-none', 'zero-shot-3-gene-1-gt-choose-gt-gpt4o', 'zero-shot-3-gene-1-none-choose-none-gpt4o']:
+            temp_score = []
+            for dataset in ['nq-mc', 'hq-mc']:
+                dir = f'../share/res/{dataset}/{model}/mid_layer/{chat_mode}/mid_layer/res/'
+                temp_score += [0]
+                temp_score += get_res_for_different_seed(dir)
+            total_score.append(temp_score)
+    # 将列表转换为DataFrame
+    df = pd.DataFrame(total_score)
+
+    # 保存为Excel文件
+    df.to_excel('output.xlsx', index=False, header=False)
+
+def get_test_label_for_mmlu(label_path, test_idx_path):
+    labels = torch.load(label_path)
+    test_idx = read_json(test_idx_path)
+    test_labels = labels[test_idx]
+    torch.save(test_labels, label_path.replace('label', 'test_label')) 
+
+def get_conf_info_for_chat_and_cot():
+    model = 'llama2-chat-7b'
+    total_res = []
+    acc = [0.2612, 0.1993, 0.422, 0.3643, 0.2955, 0.4551] # llama2
+    # acc = [0.2753, 0.2163, 0.6249, 0.4435, 0.3679, 0.6377]
+    # acc = [0.2731, 0.2496, 0.6872, 0.3776, 0.3334, 0.6863]
+    # acc = [0.3227, 0.2369, 0.5058, 0.4199, 0.331, 0.5118]
+    cnt = 0
+    for chat_mode in ['zero-shot-chat', 'zero-shot-cot']:
+        for dataset in ['nq', 'hq','mmlu']:
+            conf_dir = f'../share/res/{dataset}/{model}/mid_layer/{chat_mode}/mid_layer/sample_res/'
+            label_path = f'../share/res/{dataset}/{model}/mid_layer/{chat_mode}/mid_layer/test_labels.pt'
+            conf, conf_right, overcon, not_con_wrong, conserv = get_conf_for_different_seed(conf_dir, label_path)
+            for idx in range(len(conf)):
+                total_res.append([conf[idx], round(conf_right[idx]/acc[cnt],4), overcon[idx], round(not_con_wrong[idx]/(1-acc[cnt]), 4), conserv[idx]])
+            total_res.append([])
+            cnt += 1
+    print(total_res)
+    df = pd.DataFrame(total_res)
+    df.to_excel('output.xlsx', index=False, header=False)
 
 if __name__ == '__main__':
-    # model = 'llama3-8b-instruct'
-    # chat_mode = 'zero-shot-none'
-    # dataset = 'hq'
+    model = 'llama2-chat-7b'
+    model_tail = {
+        'llama2-chat-7b': 'llama7b',
+        'llama3-8b-instruct': 'llama8b',
+        'qwen2': 'qwen2',
+        'llama2-chat-13b': 'llama13b'
+    }
+    # chat_mode = 'zero-shot-cot'
+    # dataset = 'mmlu'
     # get_res_for_different_seed(f'../share/res/{dataset}-mc/{model}/mid_layer/{chat_mode}/mid_layer/res/')
     # compute_acc(f'../share/res/{dataset}-mc/{model}/mid_layer/{chat_mode}/{dataset}-test-gene-none.jsonl')
 
@@ -226,9 +316,49 @@ if __name__ == '__main__':
     #         train_sample_path = f'../share/res/{dataset}-mc/qwen2/mid_layer/{chat_mode}/{dataset}-train-none-choice.jsonl'
     #         sample_training_data_for_random_mc(train_sample_path, 1)
 
-    ref_path = '../share/datasets/hq-mc/test/hq-test-gene-choice-without-gt-4_test.csv'
-    gene_path= '../share/res/hq-mc/llama3-8b-instruct/mid_layer/zero-shot-wo-gt-4/hq-test-gene-choice-without-gt-4.jsonl'
-    compute_acc_for_mc_task(ref_path, gene_path)
+    # ref_path = '../share/datasets/hq-mc/test/hq-test-gene-choice-without-gt-4_test.csv'
+    # gene_path= '../share/res/hq-mc/llama3-8b-instruct/mid_layer/zero-shot-wo-gt-4/hq-test-gene-choice-without-gt-4.jsonl'
+    # compute_acc_for_mc_task(ref_path, gene_path)
+    
+    # conf, overconf, conserv
+    total_res = []
+    for dataset in ['nq', 'hq']:
+        for cnt in [2, 4, 6, 8]:
+            label_path = f'../share/res/{dataset}-mc/{model}/mid_layer/zero-shot-wo-gt-{cnt}-none-false-freeform-false-{model_tail[model]}/mid_layer/test_labels.pt'
+            labels = torch.load(label_path)
+            acc = (sum(labels)/len(labels)).item()
+            print(f'acc for {model}-{dataset}-{cnt}: {acc}')
+            conf_dir = f'../share/res/{dataset}-mc/{model}/mid_layer/zero-shot-wo-gt-{cnt}-none-false-freeform-false-{model_tail[model]}/mid_layer/sample_res/'
+            conf, conf_right, overcon, not_con_wrong, conserv = get_conf_for_different_seed(conf_dir, label_path)
+            for idx in range(len(conf)):
+                total_res.append([conf[idx], 0, round(conf_right[idx]/acc,4), round(not_con_wrong[idx]/(1-acc), 4), overcon[idx], conserv[idx]])
+            total_res.append([])
+            cnt += 1
+    print(total_res)
+    df = pd.DataFrame(total_res)
+    df.to_excel('output.xlsx', index=False, header=False)
+
+    # 保存为Excel文件
+    # total_res = []
+
+    # for dataset in ['nq', 'hq','mmlu']:
+    #     data_first = []
+    #     data_last = []
+    #     data_avg = []
+    #     for model in ['llama2-chat-7b', 'llama3-8b-instruct', 'qwen2', 'llama2-chat-13b']:
+    #             for chat_mode in ['zero-shot-chat', 'zero-shot-cot']:
+    #                 align_dir = f'../share/res/{dataset}/{model}/mid_layer/{chat_mode}/mid_layer/sample_res/'
+    #                 first_align, last_align, avg_align = get_res_for_different_seed(align_dir)
+    #                 data_first.append(first_align)
+    #                 data_last.append(last_align)
+    #                 data_avg.append(avg_align)
+    #     total_res.append(data_first)
+    #     total_res.append(data_last)
+    #     total_res.append(data_avg)
+
+    # print(total_res)
+    # df = pd.DataFrame(total_res)
+    # df.to_excel('output.xlsx', index=False, header=False)
 
 
 

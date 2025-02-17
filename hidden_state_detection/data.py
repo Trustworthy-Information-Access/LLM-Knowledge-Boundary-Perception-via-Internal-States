@@ -56,7 +56,7 @@ def split_data_for_generation(data_path, label_path, need_layers):
     print(f'test data: {test_data.shape}')
     return train_data, train_labels, dev_data, dev_labels, test_data, test_labels
 
-def split_data_for_mmlu(data_path, label_path, need_layers):
+def split_data_for_mmlu(data_path, label_path, need_layers, mmlu_train_idx):
     origin_data = torch.load(data_path)
     all_data = torch.load(data_path)[:, need_layers, :] if len(origin_data.shape) == 3 else torch.load(data_path)
     labels = torch.load(label_path) # true/false
@@ -67,7 +67,7 @@ def split_data_for_mmlu(data_path, label_path, need_layers):
     # remain_idx = [item for item in range(len(all_data)) if item not in train_sample_idx]
     # dev_sample_idx = random.sample(remain_idx, int(len(remain_idx) * 0.5))
     # test_sample_idx = [item for item in range(len(all_data)) if item not in train_sample_idx and item not in dev_sample_idx]
-    train_sample_idx = read_json('mmlu_train.jsonl')
+    train_sample_idx = read_json(mmlu_train_idx)
     dev_sample_idx = read_json('mmlu_dev.jsonl')
     test_sample_idx = read_json('mmlu_test.jsonl')
 
@@ -128,7 +128,7 @@ def prepare_mode_data_for_nq(dir, mode, hidden_modes):
     """
     为一个文件夹下所有文件都提取一个data.pt和label.pt
     """
-    paths = [item for item in os.listdir(dir) if '.jsonl' in item]
+    paths = [item for item in os.listdir(dir) if '.jsonl' in item and 'accuracy' not in item]
     for path in paths:
         file_path = dir + path
         hidden_states = {}
@@ -160,16 +160,16 @@ def prepare_sample_train_data(train_path):
     out_label = dir + mode + '_layer/sample_train_labels.pt'
     torch.save(torch.tensor(labels), out_label)   
 
-def sample_training_data(data_path, acc=1):
+def sample_training_data(data_path, acc=1, sample_cnt=1000):
     """
     采样训练数据以平衡训练样本
     """
     less_sample_list = []
-    sample_cnt = 1000
     data = read_json(data_path)
     for idx in range(len(data)):
         if data[idx]['has_answer'] == acc:
             less_sample_list.append(idx)
+    sample_cnt = len(less_sample_list) if len(less_sample_list) < sample_cnt else sample_cnt
     
     remain_idx = [item for item in range(len(data)) if item not in less_sample_list]
     total_idx = random.sample(less_sample_list, sample_cnt) + random.sample(remain_idx, sample_cnt)
@@ -178,19 +178,56 @@ def sample_training_data(data_path, acc=1):
     out_path = '/'.join(data_path.split('/')[:-1]) + '/' + data_path.split('/')[-1].replace('.jsonl', '-sample.jsonl')
     write_jsonl(new_data, out_path)
 
-#需要加一个函数，因为生成多个答案当选项的问题可能有多个选项都正确
+def sample_training_data_for_mmlu(train_idx_path, data_dir, sample_cnt=1000):
+    paths = sorted([f for f in os.listdir(data_dir) if ".jsonl" in f and 'accuracy' not in f])
+    all_data = []
+    for item in paths:
+        task_data = read_json(f'{data_dir}/{item}')
+        for t_data in task_data:
+            all_data.append(t_data)
+    full_train_idx = read_json(train_idx_path)
+    full_train_data = [all_data[idx] for idx in full_train_idx]
+    wrong_train_idx = [idx for idx in range(len(full_train_data)) if full_train_data[idx]['has_answer'] == 0]
+    right_train_idx = [idx for idx in range(len(full_train_data)) if full_train_data[idx]['has_answer'] == 1]
+    sample_train_idx = random.sample(wrong_train_idx, sample_cnt) + random.sample(right_train_idx, sample_cnt)
+    out_path = f'{data_dir}/mid_layer/sample_train_mmlu.jsonl'
+    print(len(sample_train_idx))
+    write_jsonl(sample_train_idx, out_path)
+
+"""
+Usage Example
+"""
 
 if __name__ == "__main__":
-    for dataset in ['nq']:
-        for chat_mode in ['zero-shot-wo-gt-2-none-false-freeform-false-qwen2']:
-            for model in ['qwen2']:
-                # dir = f'../share/res/{dataset}/{model}/mid_layer/{chat_mode}/'
-                # hidden_mode = ['first', 'last', 'avg', 'ans'] 
+    model_tail = {
+        'llama2-chat-7b': 'llama7b',
+        'llama2-chat-13b': 'llama13b',
+        'llama3-8b-instruct': 'llama8b',
+        'qwen2': 'qwen7b'
+    }
+    for dataset in ['mmlu']:
+        for chat_mode in ['zero-shot-cot']:
+            for model in ['llama2-chat-7b', 'llama3-8b-instruct', 'qwen2', 'llama2-chat-13b']:
+                dir = f'../share/res/{dataset}/{model}/mid_layer/{chat_mode}/'
+                hidden_mode = ['first', 'last', 'avg'] 
                 # prepare_mode_data_for_nq(dir, 'mid', hidden_mode)
                 # prepare_mode_data_for_dir(dir, 'mid', hidden_mode)
-                file_name = chat_mode.replace('zero-shot-', '').replace('wo','without').replace('false','False').replace('true','True').replace('qwen2', 'qwen7b')
-                train_sample_path = f'../share/res/{dataset}-mc/{model}/mid_layer/{chat_mode}/{dataset}-train-gene-choice-{file_name}.jsonl'
-                sample_training_data(train_sample_path, 1)
+                # 提升用的文件的路径
+                # file_name = chat_mode.replace('zero-shot-', '').replace('wo','without').replace('false','False').replace('true','True').replace('qwen2', 'qwen7b')
+                # train_sample_path = f'../share/res/{dataset}-mc/{model}/mid_layer/{chat_mode}/{dataset}-train-gene-choice-{file_name}.jsonl'
+                # 四种难度问题的路径
+                # train_sample_path = f'../share/res/{dataset}-mc/{model}/mid_layer/{chat_mode}/{dataset}-train-random-none-choice.jsonl'
+                # sample_training_data(train_sample_path, 0, 1000)
+                # prepare_sample_train_data(train_sample_path.replace('.jsonl', '-sample.jsonl'))
+                # 采样cot
+                # train_sample_path = f'../share/res/{dataset}/{model}/mid_layer/{chat_mode}/{dataset}_train_{model_tail[model]}_tokens_cot_mid_layer.jsonl'
+                # sample_training_data(train_sample_path, 0, 1000)
+                # prepare_sample_train_data(train_sample_path.replace('.jsonl', '-sample.jsonl'))
+                train_idx_path = './mmlu_train.jsonl'
+                data_dir = f'../share/res/{dataset}/{model}/mid_layer/{chat_mode}'
+                sample_training_data_for_mmlu(train_idx_path, data_dir, 1000)
 
-    
 
+    # train_sample_path='../share/res/hq/llama2-chat-13b/mid_layer/zero-shot-chat/hq_train_llama13b_tokens_mid_layer.jsonl'
+    # sample_training_data(train_sample_path, 1)
+    # prepare_sample_train_data(train_sample_path.replace('.jsonl', '-sample.jsonl'))

@@ -75,10 +75,10 @@ def main():
         if args.task == 'mmlu' or args.task == 'tq':
             all_data = MCDataset(args, subject)
             # 7200 for llama3-8b-instruct, 3000 for llama2-chat-7b
-            if args.model_name == 'llama3-8b-instruct':
+            if args.model_name in ['llama3-8b-instruct', 'qwen2-7b-instruct']:
                 engine.batch_size = int(6000 / (all_data.avg_len + args.max_new_tokens)) 
-            elif args.model_name in ['llama2-7b-chat', 'qwen2-7b-instruct']:
-                engine.batch_size = int(3000 / (all_data.avg_len + args.max_new_tokens)) # llama2运行时更耗显存
+            elif args.model_name in ['llama2-7b-chat', 'llama2-13b-chat']:
+                engine.batch_size = int(2000 / (all_data.avg_len + args.max_new_tokens)) # llama2运行时更耗显存
         else:
             raise ValueError(f'Specify the wrong task: {args.task}')
         print(f'cnt: {idx}, subject: {subject}, batch size: {engine.batch_size}')

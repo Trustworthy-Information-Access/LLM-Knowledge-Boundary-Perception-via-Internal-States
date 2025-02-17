@@ -1,4 +1,4 @@
-from utils.utils import read_json, write_jsonl
+from utils.utils import read_json, write_jsonl, has_answer
 import os
 import pandas as pd
 import torch
@@ -85,7 +85,7 @@ def get_align_for_verbalized_conf_for_dir(acc_dir, verb_dir):
     print(f'uncertain: {sum(conf_list)/len(conf_list)}')
     print(f'align: {sum(align)/len(align)}')
 
-def consistency_for_different_fils(question_path_list, freeform_path, ans_conf_path_list):
+def consistency_for_different_fils(question_path_list, freeform_path, mc_ans_path_list):
     """
     是否都选择了freeform中生成的选项
     - data_path:构造的各种选择题文件
@@ -94,24 +94,34 @@ def consistency_for_different_fils(question_path_list, freeform_path, ans_conf_p
     """
     # freeform的在第一个
     choice2answer = {'A':0, 'B':1, 'C':2, 'D':3, 'E':4, 'F':5, 'G':6, 'H':7}
-    data = []
     question = []
-    # 先找到freeform ans是哪个选项
+    # 先提取freeform ans
     freeform_data = read_json(freeform_path)
     freeform_ans = [item['Res'] for item in freeform_data]
-    choice_list = []
-
+    # 提取每个选择题选择的答案
+    # 1.提取问题
     for path in question_path_list:
-        question.append(pd.read_csv(path), header=None).to_numpy()
-        temp_choice = []
-        for idx in range(len(question)):
-            choice_idx = question[idx].index(freeform_ans[idx])
-            temp_choice.append(choice2answer[choice_idx-1])
-        choice_list.append(temp_choice)
-                
-    # 有没有选这个选项
-    for path in ans_conf_path_list:
-        data.append(read_json(path))
+        question.append(pd.read_csv(path, header=None).to_numpy())
+    # 2.提取输出选项对应的答案
+
+    total_choose_the_same = []
+    for path_idx in range(len(mc_ans_path_list)):
+        choose_the_same = []
+        mc_res = read_json(mc_ans_path_list[path_idx])
+        for idx in range(len(mc_res)):
+            ans_idx = choice2answer[mc_res[idx]['Res']] + 1
+            choose_ans = str(question[path_idx][idx][ans_idx])
+
+            if has_answer([choose_ans], freeform_ans[idx]) or has_answer([freeform_ans[idx]], choose_ans):
+                choose_the_same.append(1)
+
+            else:
+                choose_the_same.append(0)
+        total_choose_the_same.append(choose_the_same)
+        print(f'choose the same: {[sum(item)/len(item) for item in total_choose_the_same]}')
+    return total_choose_the_same
+
+
 
 def alignment_match_for_different_files(freeform_conf_path, ans_conf_path_list, conf_label_path):
     """
@@ -128,25 +138,12 @@ def alignment_match_for_different_files(freeform_conf_path, ans_conf_path_list, 
     freeform_conf = read_json(freeform_conf_path)[0]['test_pred']
     gt_conf = torch.load(conf_label_path).tolist()
     ans_conf = []
-    align_match = []
 
     for path in ans_conf_path_list:
-        consis_align = []
-        not_consis_align = []
         temp_conf = read_json(path)[0]['test_pred']
         ans_conf.append(temp_conf)
-        temp_match = []
-        for idx in range(len(temp_conf)):
-            if temp_conf[idx] == freeform_conf[idx]:
-                temp_match.append(1)
-                consis_align.append(freeform_conf[idx] == gt_conf[idx])
-            else:
-                temp_match.append(0)
-                not_consis_align.append(freeform_conf[idx] == gt_conf[idx])
         # print(f'consis align: {sum(consis_align)/len(consis_align)}')
         # print(f'not consis align: {sum(not_consis_align)/len(not_consis_align)}')
-        align_match.append(temp_match)
-    align_match = [sum(item)/len(item) for item in align_match]
     ans_conf.insert(0, freeform_conf)
     return ans_conf, gt_conf
 
@@ -173,7 +170,7 @@ def majority_vote(lists):
             result.append(0)
     return result
 
-def rule_based_cooperate(conf_lists, gt_conf):
+def rule_based_cooperate(conf_lists, gt_conf, consis_lists=[]):
     """
     基于规则的,在多个conf_list间相互配合
     Input:
@@ -182,45 +179,121 @@ def rule_based_cooperate(conf_lists, gt_conf):
     """
     consis_list = []
     not_consis_list = []
-    for i in range(len(conf_lists[0])):
+    overcon = []
+    conserv = []
+    info = []
+    safe = []
+    real_wrong_in_not_conf = []
+    for i in range(len(conf_lists[0])): # 第i个问题
         vote_num = sum([lst[i] for lst in conf_lists])
-        if vote_num == len(conf_lists) or vote_num == 0:
+        if vote_num == len(conf_lists) or vote_num == 0: # freeform与mc的判断都一致
             consis_list.append(conf_lists[0][i] == gt_conf[i])
         else:
             # 这个规则不能加,加了效果会变差
-            # if all_list[0][i] == 0 and vote_num >=4:
-            #     all_list[0][i] = 1
+            # if conf_lists[0][i] == 0 and vote_num >=4:
+                # conf_lists[0][i] = 1
+                # real_wrong_in_not_conf.append(gt_conf[i])
+                
+            # 加一个规则,若freeform认为没做对,但选择题做对了,且选择答案就是freeform里的答案,则freeform可能判断错误
+            # if conf_lists[0][i] == 0:
+            #     # 第t种方式的第i个问题
+            #     # 选的答案和freeform一样,并且还认为做对了的
+            #     consis_and_right = [consis_lists[t][i] and conf_lists[t+1][i] for t in range(len(consis_lists))]
+                
+                # if sum(consis_and_right) >= 4:
+                #     real_wrong_in_not_conf.append(gt_conf[i])
+
             # 若freeform时判断能做对,但其余形式都做不对,则freeform判断可能错误
             if conf_lists[0][i] == 1 and vote_num <=1:
                 conf_lists[0][i] = 0
             not_consis_list.append(conf_lists[0][i] == gt_conf[i])
+
+        overcon.append(conf_lists[0][i] > gt_conf[i])
+        conserv.append(conf_lists[0][i] < gt_conf[i])
+        info.append(conf_lists[0][i] == 1 and gt_conf[i] == 1)
+        safe.append(conf_lists[0][i] == 0 and gt_conf[i] == 0)
+        
+    # print(f'real_wrong_in_not_conf: {sum(real_wrong_in_not_conf)/len(real_wrong_in_not_conf)}')
     total_align = consis_list + not_consis_list
-    return sum(total_align)/len(total_align)
+    return sum(total_align)/len(total_align), sum(conf_lists[0])/len(conf_lists[0]), sum(info)/sum(gt_conf), sum(safe)/(len(gt_conf)-sum(gt_conf)), sum(overcon)/len(overcon), sum(conserv)/len(conserv)
 
 def rule_based_alignment_for_different_seed():
     """
     计算各个seed下,基于规则的聚合方法的alignmen平均值
     """
-    model = 'llama2-chat-7b'
+    # model = 'llama3-8b-instruct'
     dataset = 'nq'
-    
     model_tail = {
         'llama2-chat-7b': 'llama7b',
         'llama3-8b-instruct': 'llama8b',
-        'qwen2': 'qwen2'
+        'qwen2': 'qwen2',
+        'llama2-chat-13b': 'llama13b'
     }
-    for mode in ['first', 'last', 'avg']:
-        total_align = []
-        for seed in [0, 42, 100]:
-            freeform_conf = f'../share/res/{dataset}/{model}/mid_layer/zero-shot-chat/mid_layer/sample_res/pred_sample_{mode}_seed{seed}.jsonl'
-            label_path = f'../share/res/{dataset}/{model}/mid_layer/zero-shot-chat/mid_layer/test_labels.pt'
-            ans_path = []
-            for cnt in [4, 6, 8]:
-                ans_path.append(f'../share/res/{dataset}-mc/{model}/mid_layer/zero-shot-wo-gt-{cnt}-none-false-freeform-false-{model_tail[model]}/mid_layer/sample_res/pred_sample_{mode}_seed{seed}.jsonl')
-            all_list, gt_conf = alignment_match_for_different_files(freeform_conf, ans_path, label_path)
-            seed_align = rule_based_cooperate(all_list, gt_conf)
-            total_align.append(seed_align)
-        print(f'mode {mode}: {sum(total_align)/len(total_align)}')
+    save_res = []
+    for model in ['llama2-chat-7b', 'llama3-8b-instruct', 'qwen2', 'llama2-chat-13b']:
+        # freeform_ans = f'../share/res/{dataset}/{model}/mid_layer/zero-shot-chat/{dataset}_test_{model_tail[model]}_tokens_mid_layer.jsonl'
+        conf_label_path = f'../share/res/{dataset}/{model}/mid_layer/zero-shot-chat/mid_layer/test_labels.pt'
+        for mode in ['last']:
+            total_align = []
+            total_conf = []
+            total_info = []
+            total_safe = []
+            total_overc = []
+            total_conserv = []
+            for seed in [0, 42, 100]:
+                freeform_conf = f'../share/res/{dataset}/{model}/mid_layer/zero-shot-chat/mid_layer/sample_res/pred_sample_{mode}_seed{seed}.jsonl'
+                ans_conf_path = []
+                ans_path = []
+                question_path = []
+                for cnt in [2, 4, 6, 8]: # mc_ans path
+                    ans_conf_path.append(f'../share/res/{dataset}-mc/{model}/mid_layer/zero-shot-wo-gt-{cnt}-none-false-freeform-false-{model_tail[model]}/mid_layer/sample_res/pred_sample_{mode}_seed{seed}.jsonl')
+                    # question_name = f'wo-gt-{cnt}-none-false-freeform-false-{model_tail[model]}'.replace('wo','without').replace('false','False').replace('qwen2', 'qwen7b')
+                    # ans_path.append(f'../share/res/{dataset}-mc/{model}/extract/{dataset}-test-{cnt}.jsonl')
+                    # question_path.append(f'../share/datasets/{dataset}-mc/wo-gt-{cnt}-none-false-freeform-false-{model_tail[model]}/{dataset}-test-gene-choice-{question_name}_test.csv')
+                # consis_list = consistency_for_different_fils(question_path, freeform_ans, ans_path)
+                all_conf_list, gt_conf = alignment_match_for_different_files(freeform_conf, ans_conf_path, conf_label_path)
+                seed_align, seed_conf, seed_info, seed_safe, seed_overc, seed_consev = rule_based_cooperate(all_conf_list, gt_conf, [])
+                total_align.append(seed_align)
+                total_conf.append(seed_conf)
+                total_info.append(seed_info)
+                total_safe.append(seed_safe)
+                total_overc.append(seed_overc)
+                total_conserv.append(seed_consev)
+            mode_res = [sum(total_align)/len(total_align), sum(total_conf)/len(total_conf), sum(total_safe)/len(total_safe), sum(total_overc)/len(total_overc)]
+            mode_res = [round(item, 4) for item in mode_res]
+            save_res.append(mode_res)
+    print(save_res)
+    df = pd.DataFrame(save_res)
+    df.to_excel('output.xlsx', index=False, header=False)
+
+            # print(f'align {mode}: {sum(total_align)/len(total_align)}')
+            # print(f'conf {mode}: {sum(total_conf)/len(total_conf)}')
+            # print(f'info {mode}: {sum(total_info)/len(total_info)}')
+            # print(f'safe {mode}: {sum(total_safe)/len(total_safe)}')
+            # print(f'overcon {mode}: {sum(total_overc)/len(total_overc)}')
+            # print(f'conserv {mode}: {sum(total_conserv)/len(total_conserv)}')
+
+def extract_data():
+    model_tail = {
+        'llama2-chat-7b': 'llama7b',
+        'llama3-8b-instruct': 'llama8b',
+        'qwen2': 'qwen2',
+        'llama2-chat-13b': 'llama13b'
+    }
+    for dataset in ['nq', 'hq']:
+        for model in ['llama3-8b-instruct', 'qwen2', 'llama2-chat-13b']:
+            for cnt in [2, 4, 6, 8]:
+                if model == 'qwen2':
+                    path = f'../share/res/{dataset}-mc/{model}/mid_layer/zero-shot-wo-gt-{cnt}-none-false-freeform-false-{model_tail[model]}/{dataset}-test-gene-choice-without-gt-{cnt}-none-False-freeform-False-qwen7b.jsonl'
+                else:
+                    path = f'../share/res/{dataset}-mc/{model}/mid_layer/zero-shot-wo-gt-{cnt}-none-false-freeform-false-{model_tail[model]}/{dataset}-test-gene-choice-without-gt-{cnt}-none-False-freeform-False-{model_tail[model]}.jsonl'
+                data = read_json(path)
+                new_data = [{'Res': item['Res'], 'has_answer': item['has_answer']} for item in data]
+                out_file = f'../share/res/{dataset}-mc/{model}/extract/{dataset}-test-{cnt}.jsonl'
+                if not os.path.exists(f'../share/res/{dataset}-mc/{model}/extract'):
+                    os.makedirs(f'../share/res/{dataset}-mc/{model}/extract')
+                write_jsonl(new_data, out_file)
+
 
 if __name__ == '__main__':            
     rule_based_alignment_for_different_seed()

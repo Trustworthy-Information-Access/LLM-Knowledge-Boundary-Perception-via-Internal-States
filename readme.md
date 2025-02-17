@@ -1,3 +1,5 @@
+This is the official code for the paper *Towards Fully Exploiting LLM Internal States to Enhance Knowledge Boundary Perception*. The repository is currently in progress.
+
 ## Intro
 
 This repo is used for decoder-only LMs' inference and the code is based on transformers. **We fully utilized the Transformers library without using any inference frameworks.** The repository is continuously updated.
