@@ -35,6 +35,7 @@ def arrange_data(batch, mode, device):
 
 class Generator:
     def __init__(self, train_data, test_data, ood_data, batch_size, model):
+        # test_data can mean dev_data; ood_data can mean test_data
         self.train_data = train_data
         self.test_data = test_data
         self.odd_data = ood_data
@@ -57,9 +58,9 @@ class Generator:
         dev_auroc_list = []
         ood_auroc_list = []
         avg_dev_loss, dev_pred, dev_auroc = self.evaluate('test', mode, device)
-        avg_ood_loss, test_pred, ood_auroc = self.evaluate('ood', mode, device)
-        print('Begin Average test acc ' + str(avg_dev_loss) + ', Auroc test ' + str(dev_auroc))
-        print('Begin Average ood acc ' + str(avg_ood_loss) + ', Auroc ood ' + str(ood_auroc))
+        avg_ood_loss, ood_pred, ood_auroc = self.evaluate('ood', mode, device)
+        print('Begin Average dev acc ' + str(avg_dev_loss) + ', Auroc test ' + str(dev_auroc))
+        print('Begin Average test acc ' + str(avg_ood_loss) + ', Auroc ood ' + str(ood_auroc))
         # avg_dev_loss = self.evaluate('cuda')
         # print(f'Begin, Average acc ' + str(avg_dev_loss))
         for epoch in range(0, epochs):
@@ -83,34 +84,32 @@ class Generator:
             avg_train_loss = total_train_loss / len(self.train_loader)
             acc = acc / len(self.train_data)
             writer.add_scalar('avg_train_loss', avg_train_loss, epoch)
-            # print('Epoch ' + str(epoch + 1) + ', Average Train Loss ' + str(avg_train_loss))
             print('Epoch ' + str(epoch) + ', Average Train acc ' + str(acc.item()))
-            # torch.save(self.model, model_save_path  + '_' + str(epoch + 1) + '_epoch')
             # eval
             avg_dev_loss, dev_pred, dev_auroc = self.evaluate('test', mode, device)
-            # avg_ood_loss, test_pred, ood_auroc = self.evaluate('ood', mode, device)
+            avg_ood_loss, ood_pred, ood_auroc = self.evaluate('ood', mode, device)
             dev_acc_list.append(avg_dev_loss)
             test_acc_list.append(avg_ood_loss)
             dev_pred_list.append(dev_pred)
             dev_auroc_list.append(dev_auroc)
-            test_pred_list.append(test_pred)
+            test_pred_list.append(ood_pred)
             ood_auroc_list.append(ood_auroc)
             writer.add_scalar('avg_dev_loss', avg_dev_loss, epoch)
             writer.add_scalar('avg_test_loss', avg_ood_loss, epoch)
             print('Epoch ' + str(epoch) + ', Average dev acc ' + str(avg_dev_loss.item()) + ', Auroc dev ' + str(dev_auroc))
             print('Epoch ' + str(epoch) + ', Average test acc ' + str(avg_ood_loss.item()) + ', Auroc test ' + str(ood_auroc))
             print(f'pred right: {sum(dev_pred)/len(dev_pred)}')
-            print(f'pred right: {sum(test_pred)/len(test_pred)}')
+            print(f'pred right: {sum(ood_pred)/len(ood_pred)}')
         dev_acc_list = torch.tensor(dev_acc_list)
         test_acc_list = torch.tensor(test_acc_list)
         best_dev_score, dev_idx = torch.max(dev_acc_list, dim=0)
         best_test_score, test_idx = torch.max(test_acc_list, dim=0)
         test_score = test_acc_list[dev_idx]
-        test_pred = test_pred_list[dev_idx]
+        ood_pred = test_pred_list[dev_idx]
         best_test_pred = test_pred_list[test_idx]
         # print(f'test score: {test_score}, idx: {dev_idx}')
         # print(f'test max score: {best_test_score}, idx: {test_idx}')
-        return test_score, dev_idx, best_test_score, test_idx, test_pred, best_test_pred
+        return test_score, dev_idx, best_test_score, test_idx, ood_pred, best_test_pred
 
     def evaluate(self, test_mode, mode, device):
         self.model.eval()

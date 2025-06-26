@@ -63,11 +63,7 @@ def split_data_for_mmlu(data_path, label_path, need_layers, mmlu_train_idx):
     new_labels = torch.zeros((len(labels), 2))
     for idx in range(len(labels)):
         new_labels[idx][int(labels[idx])] = 1
-    # train_sample_idx = random.sample(range(len(all_data)), int(len(all_data) * 0.5))
-    # remain_idx = [item for item in range(len(all_data)) if item not in train_sample_idx]
-    # dev_sample_idx = random.sample(remain_idx, int(len(remain_idx) * 0.5))
-    # test_sample_idx = [item for item in range(len(all_data)) if item not in train_sample_idx and item not in dev_sample_idx]
-    train_sample_idx = read_json(mmlu_train_idx)
+    train_sample_idx = read_json('mmlu_train.jsonl')
     dev_sample_idx = read_json('mmlu_dev.jsonl')
     test_sample_idx = read_json('mmlu_test.jsonl')
 
@@ -147,7 +143,7 @@ def prepare_mode_data_for_nq(dir, mode, hidden_modes):
 
 def prepare_sample_train_data(train_path):
     """
-    为采样后的数据准备.pt训练样本
+    prepare .pt training data for sampled data
     """
     dir = '/'.join(train_path.split('/')[:-1]) + '/'
     mode = 'mid'
@@ -162,7 +158,7 @@ def prepare_sample_train_data(train_path):
 
 def sample_training_data(data_path, acc=1, sample_cnt=1000):
     """
-    采样训练数据以平衡训练样本
+    sample 1000 right and 1000 wrong data for training
     """
     less_sample_list = []
     data = read_json(data_path)
@@ -205,8 +201,8 @@ if __name__ == "__main__":
         'llama3-8b-instruct': 'llama8b',
         'qwen2': 'qwen7b'
     }
-    for dataset in ['mmlu']:
-        for chat_mode in ['zero-shot-cot']:
+    for dataset in ['nq', 'hq', 'mmlu']:
+        for chat_mode in ['zero-shot-chat', 'zero-shot-cot']:
             for model in ['llama2-chat-7b', 'llama3-8b-instruct', 'qwen2', 'llama2-chat-13b']:
                 dir = f'../share/res/{dataset}/{model}/mid_layer/{chat_mode}/'
                 hidden_mode = ['first', 'last', 'avg'] 

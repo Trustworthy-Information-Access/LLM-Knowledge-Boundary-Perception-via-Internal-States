@@ -1,4 +1,4 @@
-This is the official code for the paper *Towards Fully Exploiting LLM Internal States to Enhance Knowledge Boundary Perception*. The repository is currently in progress.
+This is the official code for the paper *[Towards Fully Exploiting LLM Internal States to Enhance Knowledge Boundary Perception](https://arxiv.org/abs/2502.11677)*(**ACL2025 Main**). The repository is currently in progress.
 
 ## Intro
 
@@ -13,20 +13,28 @@ This repo is used for decoder-only LMs' inference and the code is based on trans
 
 ### Free-form Generation
 ```bash
-python -u run_nq.py \
-    --source YOUR_DATA_PATH \
-    --type qa \
-    --ra none \
-    --outfile YOUR_OUT_FILE_PATH \
-    --model_path YOUR_MODEL_PATH \
-    --batch_size 36 \
-    --task nq \
-    --max_new_tokens 64 \
-    --hidden_states 1 \
-    --hidden_idx_mode every \
-    --need_layers mid
+need_layers=mid
+model_path=../models/Qwem2-7B-Instruct
+for task in nq hq
+do
+    for dataset in test dev train
+    do
+        outfile="./res/${task}/${task}_${dataset}_llama7b_tokens_cot_${need_layers}_layer.jsonl"
+        python -u run_nq.py \
+            --source ../share/datasets/${task}/${task}-${dataset}.jsonl \
+            --type qa \
+            --ra none \
+            --outfile $outfile \
+            --model_path $model_path \
+            --batch_size 36 \
+            --task nq \
+            --max_new_tokens 64 \
+            --hidden_states 1 \
+            --hidden_idx_mode first,last,avg \
+            --need_layers $need_layers
+    done
+done
 ```
-- `--ra`: If retrieval augmentation is needed, you can specify the document type; otherwise, set it to `none`.
 - `--hidden_states`: If you want to obtain the hidden state information related to the generated tokens, you need to specify this parameter; otherwise, remove it.
 - `--hidden_idx_mode`: We support [`first,last,avg,min,every']
   - `first, last`: Obtain the hidden state at the specified layers for the **first** or **last** token during generation. 
@@ -87,10 +95,16 @@ python run_mmlu.py \
     --max_new_tokens 64 \
 ```
 
-## Core Files
-- `run_mmlu/run_nq.py`
-- `utils/prompt.py, data.py, llm.py`
-
-> `llm_deepspeed.py` is a demo for using distributed inference
->
-> `generation_utils.py` is the generation file in transformers used for learning
+## Paper Implementation
+- QA
+  - We ask the model to answer questions. Necessary scripts can be found in `run_mmlu.sh`(for multi-choice QA) and `run_nq.sh`(for free-form generation). The core file is `./utils/llm.py`
+- MLP Training
+  - Data preprocess: convert files from QA to `.pt` data for training. See `./hidden_state_detection/data.py`
+    - If you want to sample training data for balanced classes(acc=1/0), see `sample_training_data` in `./hidden_state_detection/data.py`
+  - Training:
+    - Necessary scripts can be found in `./hidden_state_detection/scripts` like `run_nq.sh`, `run_nq_mc.sh`, `run_nq_mc_sample.sh`. You can design the scripts.
+- $C^3$
+  - Question Reformulation: 
+    - Run `run_nq.sh` and specify `--type qa_more`
+    - Construct multi-choice questions. See `./mc_data/data.py`
+  - MLP Training: The same as the above.

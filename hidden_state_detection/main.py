@@ -28,12 +28,12 @@ def run(args):
     print('hyper-parameters-----------------------------------------------------------------------------')
     print(f'hidden_size: {hidden_size}\nneed_layers: {need_layers}\ndropout: {dropout}')
     if 'nq' in args.data or 'hq' in args.data:
-        train_data, train_labels, test_data, test_labels, ood_data, ood_labels = split_data_for_generation(args.data, args.label, need_layers)
+        train_data, train_labels, dev_data, dev_labels, test_data, test_labels = split_data_for_generation(args.data, args.label, need_layers)
     else:
-        train_data, train_labels, test_data, test_labels, ood_data, ood_labels = split_data_for_mmlu(args.data, args.label, need_layers, args.mmlu_train_idx)
+        train_data, train_labels, dev_data, dev_labels, test_data, test_labels = split_data_for_mmlu(args.data, args.label, need_layers, args.mmlu_train_idx)
     train_dataset = HiddenData(train_data, train_labels)
+    dev_dataset = HiddenData(dev_data, dev_labels)
     test_dataset = HiddenData(test_data, test_labels)
-    ood_dataset = HiddenData(ood_data, ood_labels)
     input_dim = train_data[0].shape[-1]
     if mode == 'mlp' and len(train_data[0].shape) > 1:
         input_dim = train_data[0].shape[-1] * train_data[0].shape[-2] # dim * layers
@@ -42,7 +42,7 @@ def run(args):
     else:
         raise ValueError("Specify a wrong model")
     print(f'model: {net}')
-    engine = Generator(train_dataset, test_dataset, ood_dataset, args.batch_size, net)
+    engine = Generator(train_dataset, dev_dataset, test_dataset, args.batch_size, net)
     test_score, dev_idx, best_test_score, test_idx, test_pred, best_test_pred = engine.finetune(epochs=args.epochs, mode=mode, lr_rate=args.lr_rate)
     print(f'test score: {test_score}, idx={dev_idx}')
     print(f'best test score: {best_test_score}, idx={test_idx}')
