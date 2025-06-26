@@ -57,10 +57,12 @@ python run_mmlu.py \
     --task mmlu \
     --max_new_tokens 64 \
     --hidden_states 1 \
+    --hidden_idx_mode first,last,avg \
     --need_layers mid
 ```
 - Very similar to `Free-Form Generation`.
-- We find the choices [`A,B,C,D`] in the response and get related information, so there is no need to specify `--hidden_idx_mode`
+- We find the choices [`A,B,C,D`] in the response 
+- `--hidden_idx_mode`: We support [`first,last,avg,min,every']
 ## Note
 - `--hidden_idx_mode, --need_layers` only works when you specify `--hidden_states 1`
 
