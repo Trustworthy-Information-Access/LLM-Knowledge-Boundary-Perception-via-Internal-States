@@ -107,6 +107,16 @@ torch==2.1.1+cu118
 CUDA Version: 12.2 
 ```
 
+### Data
+
+| Datasets               | Source                                    |
+| ---------------------- | ----------------------------------------- |
+| Natural Questions (NQ) | ./data/nq                                 |
+| HotpotQA               | ./data/hq                                 |
+| MMLU                   | https://huggingface.co/datasets/cais/mmlu |
+
+
+
 - QA
   - We ask the model to answer questions. Necessary scripts can be found in `run_mmlu.sh`(for multi-choice QA) and `run_nq.sh`(for free-form generation). The core file is `./utils/llm.py`
 - MLP Training
